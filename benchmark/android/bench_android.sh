@@ -4,6 +4,7 @@ OPENMP="OFF"
 VULKAN="ON"
 OPENCL="ON"
 OPENGL="OFF"
+WARMUP=2
 RUN_LOOP=10
 FORWARD_TYPE=0
 CLEAN=""
@@ -54,6 +55,7 @@ function build_android_bench() {
           -DMNN_ARM82:BOOL=ON \
           -DMNN_BUILD_BENCHMARK:BOOL=ON \
           -DMNN_BUILD_FOR_ANDROID_COMMAND=true \
+          -DMNN_BUILD_SHARED_LIBS=OFF \
           -DNATIVE_LIBRARY_OUTPUT=.
     make -j8 benchmark.out timeProfile.out
 }
@@ -75,11 +77,11 @@ function bench_android() {
     adb shell "echo >> $ANDROID_DIR/benchmark.txt"
     adb shell "echo Build Flags: ABI=$ABI  OpenMP=$OPENMP Vulkan=$VULKAN OpenCL=$OPENCL >> $ANDROID_DIR/benchmark.txt"
     #benchmark  CPU
-    adb shell "LD_LIBRARY_PATH=$ANDROID_DIR $ANDROID_DIR/benchmark.out $ANDROID_DIR/benchmark_models $RUN_LOOP 5 $FORWARD_TYPE 2>$ANDROID_DIR/benchmark.err >> $ANDROID_DIR/benchmark.txt"
+    adb shell "LD_LIBRARY_PATH=$ANDROID_DIR $ANDROID_DIR/benchmark.out $ANDROID_DIR/benchmark_models $RUN_LOOP $WARMUP $FORWARD_TYPE 2>$ANDROID_DIR/benchmark.err >> $ANDROID_DIR/benchmark.txt"
     #benchmark  Vulkan
-    adb shell "LD_LIBRARY_PATH=$ANDROID_DIR $ANDROID_DIR/benchmark.out $ANDROID_DIR/benchmark_models $RUN_LOOP 5 7 2>$ANDROID_DIR/benchmark.err >> $ANDROID_DIR/benchmark.txt"
+    adb shell "LD_LIBRARY_PATH=$ANDROID_DIR $ANDROID_DIR/benchmark.out $ANDROID_DIR/benchmark_models $RUN_LOOP $WARMUP 7 2>$ANDROID_DIR/benchmark.err >> $ANDROID_DIR/benchmark.txt"
     #benchmark OpenCL
-    adb shell "LD_LIBRARY_PATH=$ANDROID_DIR $ANDROID_DIR/benchmark.out $ANDROID_DIR/benchmark_models 100 20 3 2>$ANDROID_DIR/benchmark.err >> $ANDROID_DIR/benchmark.txt"
+    adb shell "LD_LIBRARY_PATH=$ANDROID_DIR $ANDROID_DIR/benchmark.out $ANDROID_DIR/benchmark_models $RUN_LOOP $WARMUP 3 2>$ANDROID_DIR/benchmark.err >> $ANDROID_DIR/benchmark.txt"
 }
 
 while [ "$1" != "" ]; do

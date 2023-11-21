@@ -14,6 +14,7 @@
 #include <string.h>
 #include <cstring>
 #include <fstream>
+#include <sstream>
 #include <iostream>
 #include <vector>
 #if defined(_MSC_VER)
@@ -75,6 +76,12 @@ std::vector<Model> findModelFiles(const char* dir) {
     DIR* root;
     if ((root = opendir(dir)) == NULL) {
         std::cout << "open " << dir << " failed: " << strerror(errno) << std::endl;
+        std::cout << "trying to open single file..." << std::endl;
+        Model m;
+        if (file_exist(dir)) {
+            m.model_file = std::string(dir);
+            models.push_back(std::move(m));
+        }
         return models;
     }
 
@@ -142,6 +149,7 @@ std::vector<float> doBench(Model& model, int loop, int warmup = 10, int forward 
     MNN::Session* session = net->createSession(config);
 
     MNN::Tensor* input    = net->getSessionInput(session, NULL);
+    std::cout << "Tensor size: " << input->batch() << ", " << input->channel() << ", " << input->height() << ", " << input->width() << std::endl;
 
     // if the model has not the input dimension, umcomment the below code to set the input dims
     // std::vector<int> dims{1, 3, 224, 224};
@@ -187,6 +195,15 @@ void displayStats(const std::string& name, const std::vector<float>& costs, int 
         min = fmin(min, v);
         sum += v;
         //printf("[ - ] cost：%f ms\n", v);
+
+        // Log individual times for AIBench
+        std::stringstream buffer;
+        buffer << "PyTorchObserver {\"type\": \"NET\", "
+                << "\"unit\": \"ms\", "
+                << "\"metric\": \"latency\", "
+                << "\"value\": \"" << v << "\""
+                << "}\n";
+        std::cout << buffer.str();
     }
     avg = costs.size() > 0 ? sum / costs.size() : 0;
     std::string model = name;
@@ -382,49 +399,71 @@ void iosBenchAll(const char* modelPath) {
     }
 }
 #else
-int main(int argc, const char* argv[]) {
+
+class InputParser{
+    public:
+        InputParser (int &argc, char **argv){
+            for (int i=1; i < argc; ++i)
+                this->tokens.push_back(std::string(argv[i]));
+        }
+        /// @author iain
+        const std::string& getCmdOption(const std::string &option) const{
+            std::vector<std::string>::const_iterator itr;
+            itr =  std::find(this->tokens.begin(), this->tokens.end(), option);
+            if (itr != this->tokens.end() && ++itr != this->tokens.end()){
+                return *itr;
+            }
+            static const std::string empty_string("");
+            return empty_string;
+        }
+        /// @author iain
+        bool cmdOptionExists(const std::string &option) const{
+            return std::find(this->tokens.begin(), this->tokens.end(), option)
+                   != this->tokens.end();
+        }
+    private:
+        std::vector <std::string> tokens;
+};
+
+int main(int argc, char** argv) {
     std::cout << "MNN benchmark" << std::endl;
-    int loop               = 10;
-    int warmup             = 10;
+    int loop               = 50;
+    int warmup             = 50;
     MNNForwardType forward = MNN_FORWARD_CPU;
     int testQuantizedModel = 0;
-    int numberThread       = 4;
+    int numberThread       = 1;
     int precision = 2;
     float sparsity = 0.0f;
     int sparseBlockOC = 1;
-    if (argc <= 2) {
-        std::cout << "Usage: " << argv[0] << " models_folder [loop_count] [warmup] [forwardtype] [numberThread] [precision] [weightSparsity] [testQuantizedModel]" << std::endl;
-        return 1;
+
+    InputParser input(argc, argv);
+
+    std::string loop_str = input.getCmdOption("--iter");
+    if (!loop_str.empty()) {
+        loop = stoi(loop_str);
     }
-    if (argc >= 3) {
-        loop = atoi(argv[2]);
+
+    std::string warmup_str = input.getCmdOption("--warmup");
+    if (!warmup_str.empty()) {
+        warmup = stoi(warmup_str);
     }
-    if (argc >= 4) {
-        warmup = atoi(argv[3]);
+
+    std::string forward_str = input.getCmdOption("--forward");
+    if (!forward_str.empty()) {
+        if (forward_str == "CPU") {
+            forward = MNN_FORWARD_CPU;
+        }
+        if (forward_str == "CL") {
+            forward = MNN_FORWARD_OPENCL;
+        }
     }
-    if (argc >= 5) {
-        forward = static_cast<MNNForwardType>(atoi(argv[4]));
-    }
-    if (argc >= 6) {
-        numberThread = atoi(argv[5]);
-    }
-    if (argc >= 7) {
-        precision = atoi(argv[6]);
-    }
-    if (argc >= 8) {
-        sparsity = atof(argv[7]);
-    }
-    if(argc >= 9) {
-        sparseBlockOC = atoi(argv[8]);
-    }
-    if(argc >= 10) {
-        testQuantizedModel = atoi(argv[9]);
-    }
+
+    const std::string modelPath = input.getCmdOption("--mnn_model");
 
     std::cout << "Forward type: " << forwardType(forward) << " thread=" << numberThread << " precision=" <<precision << " sparsity=" <<sparsity << " sparseBlockOC=" << sparseBlockOC << " testQuantizedModel=" << testQuantizedModel << std::endl;
-    std::vector<Model> models = findModelFiles(argv[1]);
+    std::vector<Model> models = findModelFiles(modelPath.c_str());
 
-    std::cout << "--------> Benchmarking... loop = " << argv[2] << ", warmup = " << warmup << std::endl;
+    std::cout << "--------> Benchmarking... loop = " << loop << ", warmup = " << warmup << std::endl;
     std::string fpInfType = "precision!=2, use fp32 inference.";
     if (precision == 2) {
         fpInfType = "precision=2, use fp16 inference if your device supports and open MNN_ARM82=ON.";
